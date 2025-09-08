@@ -2,6 +2,17 @@
 
 All credits to Tomeu Vizoso, who did all the real work. This is simply a Docker image with the userspace pieces to make it easier to try out.
 
+## Why this?
+
+Getting the userspace pieces to try it out is slightly inconvenient, as one needs:
+- Recent mainline Mesa
+  - To get that building, one needs a recent Meson
+- Old Python 3.10 or 3.11, as Tensorflow Lite `tflite-runtime` only publishes prebuilt wheels for those versions
+
+Thus, this Docker image, which bundles everything together, using a Bookworm base image and bookworm-backports for Meson.
+
+Tensorflow Lite seems to be in-flux right now, so building it from source is not yet a goal, but might be in the future.
+
 ## Get appropriate hardware and kernel
 
 You'll need either
