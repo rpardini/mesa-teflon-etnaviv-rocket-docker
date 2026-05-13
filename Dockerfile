@@ -21,7 +21,7 @@ apt-get -y install python3 python3-pytest python3-exceptiongroup python3-pip
 
 APT_INSTALLS
 
-# Build upstream mesa from source; enable teflon and the etnaviv and rocket drivers
+# Build upstream mesa from source ("main" branch); enable teflon and the etnaviv and rocket drivers
 RUN <<MESA_BUILD
 mkdir -p /src
 cd /src
