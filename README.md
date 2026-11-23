@@ -43,7 +43,7 @@ apt-get install docker.io docker-cli
 
 ## Pull this image
 
-It's quite large (~1.2Gb) so pull it separately.
+It's ~380MB (only libteflon.so and the test bits; Mesa is built in a throwaway stage), so pull it separately.
 
 ```shell
 docker pull ghcr.io/rpardini/mesa-teflon-etnaviv-rocket-docker:latest
