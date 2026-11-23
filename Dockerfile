@@ -14,8 +14,20 @@ apt-get -y update
 apt-get -y install  curl wget git cmake meson python3-mako python3-yaml pkg-config libdrm-dev zlib1g-dev bison \
                     flex libwayland-dev libwayland-egl-backend-dev libxcb-dri3-dev libxcb-present-dev libxcb-sync-dev \
                     libexpat1-dev wayland-protocols libx11-dev libxext-dev libxcb-glx0-dev libxcb-shm0-dev \
-                    libx11-xcb-dev libxshmfence-dev libxxf86vm-dev libxrandr-dev python3-pycparser python3
+                    libx11-xcb-dev libxshmfence-dev libxxf86vm-dev libxrandr-dev python3-pycparser python3 python3-pip
 APT_INSTALLS
+
+# Mesa main's codegen needs Python >= 3.12 (PEP 701 f-strings); bookworm has 3.11. Use a uv-managed 3.12 venv for
+# meson & co, only in this builder stage. Runtime stays on bookworm's 3.11 (tflite-runtime wheels) and glibc.
+RUN <<PYTHON_BUILD_VENV
+set -e
+python3 -m pip install --no-cache-dir --break-system-packages uv
+uv venv --python 3.12 /opt/pybuild
+uv pip install --python /opt/pybuild/bin/python meson mako pyyaml pycparser packaging
+/opt/pybuild/bin/python --version
+/opt/pybuild/bin/meson --version
+PYTHON_BUILD_VENV
+ENV PATH="/opt/pybuild/bin:${PATH}"
 
 # Build mesa from source; defaults to upstream "main". Variants (eg rk3576) override repo/ref and apply patches/<variant>/*.patch
 ARG MESA_REPO=https://gitlab.freedesktop.org/mesa/mesa.git
@@ -45,10 +57,19 @@ cd /src/mesa
 for f in MESA_SOURCE \
          build/src/gallium/targets/teflon/libteflon.so \
          src/gallium/frontends/teflon/tests/classification.py \
-         src/gallium/frontends/teflon/tests/labels_mobilenet_quant_v1_224.txt \
-         src/gallium/targets/teflon/tests/models/mobilenetv1/mobilenet_v1_1_224_quant.tflite; do
+         src/gallium/frontends/teflon/tests/labels_mobilenet_quant_v1_224.txt; do
   install -D "${f}" "/out/src/mesa/${f}"
 done
+# Mesa main dropped in-tree models (4dc3d9cc9bf1, moved to the npu-model-zoo subproject); if missing, fetch the
+# exact same file from the last commit that had it, and verify it.
+MODEL=src/gallium/targets/teflon/tests/models/mobilenetv1/mobilenet_v1_1_224_quant.tflite
+mkdir -p "/out/src/mesa/$(dirname "${MODEL}")"
+if [ -f "${MODEL}" ]; then
+  cp "${MODEL}" "/out/src/mesa/${MODEL}"
+else
+  wget -O "/out/src/mesa/${MODEL}" "https://gitlab.freedesktop.org/mesa/mesa/-/raw/463f4f0cdb9e65b450eae5a0a17d45cdf2dbbc9f/${MODEL}"
+fi
+echo "1ef5ede54c9b41908ef433930133ef4261b0d87b2f8e07d6b3c98df978e7160b  /out/src/mesa/${MODEL}" | sha256sum -c -
 # Grab a picture of Grace for testing (should get "military uniform", "windsor tie", etc)
 wget https://raw.githubusercontent.com/tensorflow/tensorflow/master/tensorflow/lite/examples/label_image/testdata/grace_hopper.bmp -O /out/src/mesa/grace_hopper.bmp
 
