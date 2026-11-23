@@ -1,0 +1,119 @@
+diff --git a/include/drm-uapi/rocket_accel.h b/include/drm-uapi/rocket_accel.h
+index 14b2e12..c71f99a 100644
+--- a/include/drm-uapi/rocket_accel.h
++++ b/include/drm-uapi/rocket_accel.h
+@@ -15,11 +15,13 @@ extern "C" {
+ #define DRM_ROCKET_SUBMIT			0x01
+ #define DRM_ROCKET_PREP_BO			0x02
+ #define DRM_ROCKET_FINI_BO			0x03
++#define DRM_ROCKET_GET_PARAM			0x04
+ 
+ #define DRM_IOCTL_ROCKET_CREATE_BO		DRM_IOWR(DRM_COMMAND_BASE + DRM_ROCKET_CREATE_BO, struct drm_rocket_create_bo)
+ #define DRM_IOCTL_ROCKET_SUBMIT			DRM_IOW(DRM_COMMAND_BASE + DRM_ROCKET_SUBMIT, struct drm_rocket_submit)
+ #define DRM_IOCTL_ROCKET_PREP_BO		DRM_IOW(DRM_COMMAND_BASE + DRM_ROCKET_PREP_BO, struct drm_rocket_prep_bo)
+ #define DRM_IOCTL_ROCKET_FINI_BO		DRM_IOW(DRM_COMMAND_BASE + DRM_ROCKET_FINI_BO, struct drm_rocket_fini_bo)
++#define DRM_IOCTL_ROCKET_GET_PARAM		DRM_IOWR(DRM_COMMAND_BASE + DRM_ROCKET_GET_PARAM, struct drm_rocket_get_param)
+ 
+ /**
+  * struct drm_rocket_create_bo - ioctl argument for creating Rocket BOs.
+@@ -135,6 +137,38 @@ struct drm_rocket_submit {
+ 	__u64 reserved;
+ };
+ 
++/**
++ * enum drm_rocket_param - parameters for DRM_IOCTL_ROCKET_GET_PARAM
++ * @DRM_ROCKET_PARAM_HW_VERSION: an enum drm_rocket_hw_version value.
++ */
++enum drm_rocket_param {
++	DRM_ROCKET_PARAM_HW_VERSION = 0,
++};
++
++/**
++ * enum drm_rocket_hw_version - the NPU, one value per DT compatible
++ * @DRM_ROCKET_HW_RK3588: "rockchip,rk3588-rknn-core"
++ * @DRM_ROCKET_HW_RK3576: "rockchip,rk3576-rknn-core"
++ */
++enum drm_rocket_hw_version {
++	DRM_ROCKET_HW_RK3588 = 1,
++	DRM_ROCKET_HW_RK3576 = 2,
++};
++
++/**
++ * struct drm_rocket_get_param - ioctl argument for querying a parameter.
++ */
++struct drm_rocket_get_param {
++	/** @param: Input: an enum drm_rocket_param value. */
++	__u32 param;
++
++	/** @reserved: Reserved, must be zero. */
++	__u32 reserved;
++
++	/** @value: Output: the value of the parameter. */
++	__u64 value;
++};
++
+ #if defined(__cplusplus)
+ }
+ #endif
+diff --git a/src/gallium/drivers/rocket/rkt_device.c b/src/gallium/drivers/rocket/rkt_device.c
+index faf1e56..d1042ae 100644
+--- a/src/gallium/drivers/rocket/rkt_device.c
++++ b/src/gallium/drivers/rocket/rkt_device.c
+@@ -26,16 +26,27 @@
+  * compatible can't be read.
+  */
+ static enum rkt_soc
+-rkt_detect_soc(int fd)
++rkt_detect_soc_how(int fd, const char **how)
+ {
+    const char *override = getenv("ROCKET_SOC");
+    if (override) {
++      *how = "ROCKET_SOC env";
+       if (strstr(override, "3588"))
+          return RKT_SOC_RK3588;
+       if (strstr(override, "3576"))
+          return RKT_SOC_RK3576;
+    }
+ 
++   /* Kernels with the RK3576 series (v16+) answer GET_PARAM HW_VERSION. */
++   struct drm_rocket_get_param gp = {.param = DRM_ROCKET_PARAM_HW_VERSION};
++   if (drmIoctl(fd, DRM_IOCTL_ROCKET_GET_PARAM, &gp) == 0) {
++      *how = "GET_PARAM ioctl";
++      if (gp.value == DRM_ROCKET_HW_RK3588)
++         return RKT_SOC_RK3588;
++      if (gp.value == DRM_ROCKET_HW_RK3576)
++         return RKT_SOC_RK3576;
++   }
++
+    struct stat st;
+    if (fstat(fd, &st) == 0 && S_ISCHR(st.st_mode)) {
+       char path[128], buf[512];
+@@ -47,6 +58,7 @@ rkt_detect_soc(int fd)
+          size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+          fclose(f);
+          buf[n] = '\0';
++         *how = "sysfs OF compatible";
+          /* compatible is a NUL-separated list; scan the whole blob. */
+          for (size_t i = 0; i < n; i++) {
+             if (!strncmp(buf + i, "rk3588", 6) || !strncmp(buf + i, "rk3568", 6))
+@@ -57,9 +69,20 @@ rkt_detect_soc(int fd)
+       }
+    }
+ 
++   *how = "fallback default";
+    return RKT_SOC_RK3576;
+ }
+ 
++static enum rkt_soc
++rkt_detect_soc(int fd)
++{
++   const char *how = "?";
++   enum rkt_soc soc = rkt_detect_soc_how(fd, &how);
++   fprintf(stderr, "rocket: SoC %s (detected via %s)\n",
++           soc == RKT_SOC_RK3588 ? "RK3588" : "RK3576", how);
++   return soc;
++}
++
+ static const struct debug_named_value rocket_debug_options[] = {
+    {"dbg_msgs", ROCKET_DBG_MSGS, "Print debug messages"},
+    {"dump_bos", ROCKET_DBG_DUMP_BOS, "Dump buffers for analysis"},

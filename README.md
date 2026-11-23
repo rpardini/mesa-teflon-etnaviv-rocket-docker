@@ -57,6 +57,19 @@ Run it privileged (eg, as root:)
 docker run -it --privileged ghcr.io/rpardini/mesa-teflon-etnaviv-rocket-docker:latest
 ```
 
+### RK3576 (`:rk3576` tag)
+
+Upstream Mesa's rocket driver only knows the RK3588 NPU. For RK3576, use the `:rk3576` tag:
+
+- Mesa is Jiaxing Hu's RK3576 development tree ([gahingwoo/mesa-rk3576](https://github.com/gahingwoo/mesa-rk3576), pinned in the workflow), Mesa 25.3 based. The narrower upstream MR is [mesa!43804](https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43804), but it sends MobileNet to the CPU.
+- `patches/rk3576/` makes the driver detect the SoC via `DRM_IOCTL_ROCKET_GET_PARAM` / `HW_VERSION` (from kernel series "accel/rocket: RK3576 NPU (RKNN) enablement" v16+). Otherwise it falls back to sysfs, and then to RK3576.
+- `ROCKET_SOC=rk3588|rk3576` forces the SoC.
+- It needs a kernel carrying that RK3576 series. On RK3588, keep using `:latest`.
+
+```shell
+docker run -it --privileged ghcr.io/rpardini/mesa-teflon-etnaviv-rocket-docker:rk3576
+```
+
 ### Expected output, Etnaviv
 
 Kernel dmesg:

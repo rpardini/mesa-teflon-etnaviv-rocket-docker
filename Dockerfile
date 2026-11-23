@@ -21,12 +21,23 @@ apt-get -y install python3 python3-pytest python3-exceptiongroup python3-pip
 
 APT_INSTALLS
 
-# Build upstream mesa from source ("main" branch); enable teflon and the etnaviv and rocket drivers
+# Build mesa from source; defaults to upstream "main". Variants (eg rk3576) override repo/ref and apply patches/<variant>/*.patch
+ARG MESA_REPO=https://gitlab.freedesktop.org/mesa/mesa.git
+ARG MESA_REF=main
+ARG MESA_PATCHES=
+COPY patches/ /src/patches/
 RUN <<MESA_BUILD
-mkdir -p /src
-cd /src
-git clone https://gitlab.freedesktop.org/mesa/mesa.git
+set -e
+mkdir -p /src/mesa
 cd /src/mesa
+git init -q
+git remote add origin "${MESA_REPO}"
+git fetch --depth=1 origin "${MESA_REF}"
+git -c advice.detachedHead=false checkout FETCH_HEAD
+if [ -n "${MESA_PATCHES}" ]; then
+  for p in /src/patches/${MESA_PATCHES}/*.patch; do echo "Applying ${p}"; git apply --verbose "${p}"; done
+fi
+echo "${MESA_REPO} ${MESA_REF} $(git rev-parse HEAD) patches=${MESA_PATCHES:-none}" | tee /src/mesa/MESA_SOURCE
 meson setup build -Dgallium-drivers=etnaviv,rocket -Dvulkan-drivers= -Dteflon=true
 meson compile -C build
 MESA_BUILD
@@ -45,6 +56,7 @@ cat << EOD > /src/mesa/launch_teflon_test.sh
 #!/bin/bash
 set -e -x
 cd /src/mesa
+cat /src/mesa/MESA_SOURCE
 TEFLON_DEBUG=verbose ETNA_MESA_DEBUG=ml_dbgs python3 src/gallium/frontends/teflon/tests/classification.py \
     -i /src/mesa/grace_hopper.bmp \
     -m src/gallium/targets/teflon/tests/models/mobilenetv1/mobilenet_v1_1_224_quant.tflite \

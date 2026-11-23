@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
-    paths: [ Dockerfile ]
+    paths: [ Dockerfile, 'patches/**', '.github/workflows/**' ]
   #schedule:
   #  - cron: '0 3 * * *' # Scheduled runs every day at 3am UTC
 
@@ -22,6 +22,11 @@ jobs:
       fail-fast: false # let other jobs try to complete if one fails
       matrix:
         arch: [ { name: 'arm64', runner: "ubuntu-24.04-arm" } ] # this doesn't make sense on amd64:  { name: 'amd64', runner: 'ubuntu-latest' } ,
+        variant:
+          # upstream mesa main; RK3588 rocket + etnaviv
+          - { name: 'latest', mesa_repo: 'https://gitlab.freedesktop.org/mesa/mesa.git', mesa_ref: 'main', mesa_patches: '' }
+          # Jiaxing Hu's RK3576 rocket dev tree (MobileNet on NPU), plus GET_PARAM HW_VERSION detection (kernel series v16+)
+          - { name: 'rk3576', mesa_repo: 'https://github.com/gahingwoo/mesa-rk3576.git', mesa_ref: '1f0de937b71119c50461fdbcdfd8b2f8a38e232c', mesa_patches: 'rk3576' }
     steps:
 
       - name: Checkout
@@ -38,7 +43,7 @@ jobs:
           username: ${{ github.repository_owner }} # github username or org
           password: ${{ secrets.GITHUB_TOKEN }}    # github actions builtin token. repo has to have pkg access.
 
-      - name: Build and push ${{ matrix.arch.name }}
+      - name: Build and push ${{ matrix.variant.name }} ${{ matrix.arch.name }}
         id: docker_build
         uses: docker/build-push-action@v4
         with:
@@ -54,11 +59,14 @@ jobs:
             org.opencontainers.image.source=${{ github.event.repository.clone_url }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.licenses=${{ github.event.repository.license.spdx_id }}
-          cache-from: type=gha,scope=${{ matrix.arch.name }} # all-automatic Github Actions caching
-          cache-to: type=gha,mode=max,scope=${{ matrix.arch.name }}
+          cache-from: type=gha,scope=${{ matrix.variant.name }}-${{ matrix.arch.name }} # all-automatic Github Actions caching
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant.name }}-${{ matrix.arch.name }}
           build-args: |
             VERSION=${{ github.run_number }}
-          tags: ghcr.io/${{ github.repository }}:latest-${{ matrix.arch.name }}
+            MESA_REPO=${{ matrix.variant.mesa_repo }}
+            MESA_REF=${{ matrix.variant.mesa_ref }}
+            MESA_PATCHES=${{ matrix.variant.mesa_patches }}
+          tags: ghcr.io/${{ github.repository }}:${{ matrix.variant.name }}-${{ matrix.arch.name }}
 
   # A separate job, that depends on the each-arch job above, that does the multi-arch manifest.
   multi-arch:
@@ -84,6 +92,11 @@ jobs:
         run: |
           docker buildx imagetools create -t ghcr.io/${{ github.repository }}:latest ghcr.io/${{ github.repository }}:latest-arm64 # ghcr.io/${{ github.repository }}:latest-amd64
           docker buildx imagetools inspect ghcr.io/${{ github.repository }}:latest
+
+      - name: Create and push multi-arch manifest using buildx (rk3576)
+        run: |
+          docker buildx imagetools create -t ghcr.io/${{ github.repository }}:rk3576 ghcr.io/${{ github.repository }}:rk3576-arm64
+          docker buildx imagetools inspect ghcr.io/${{ github.repository }}:rk3576
 
       - name: Create and push multi-arch manifest using buildx (v${{ github.run_number }})
         run: |
